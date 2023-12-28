@@ -1,13 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"os"
+	"text/template"
 
-	"github.com/sirupsen/logrus"
+	"github.com/gorilla/csrf"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -16,7 +18,7 @@ const (
 )
 
 var (
-	sessionStore sessions.Store
+	sessionStore *sessions.CookieStore
 	log          = logrus.WithField("cmd", "go-sessions-demo")
 )
 
@@ -34,13 +36,30 @@ func home(w http.ResponseWriter, r *http.Request) {
 
 	username, found := session.Values["username"]
 	if !found || username == "" {
-		http.Redirect(w, r, "/public/login.html", http.StatusSeeOther)
+		http.Redirect(w, r, "login", http.StatusSeeOther)
 		log.WithField("username", username).Info("Username is empty/notfound, redirecting")
 		return
 	}
 
 	w.Header().Add("Content-Type", "text/html")
-	fmt.Fprintf(w, "<html><body>Hello %s<br/><a href='/logout'>Logout</a></body></html>", username)
+	t := template.Must(template.ParseFiles("./public/home.html"))
+	err = t.Execute(w, map[string]interface{}{
+		csrf.TemplateTag: csrf.TemplateField(r), "username": username,
+	})
+	if err != nil {
+		log.WithField("err", err).Error("Error execute template.")
+	}
+}
+
+func loginForm(w http.ResponseWriter, r *http.Request) {
+	log.Info("Redirected to login form.")
+	t := template.Must(template.ParseFiles("./public/login.html"))
+	err := t.Execute(w, map[string]interface{}{
+		csrf.TemplateTag: csrf.TemplateField(r),
+	})
+	if err != nil {
+		log.WithField("err", err).Error("Error execute template.")
+	}
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
@@ -120,14 +139,19 @@ func main() {
 		[]byte(os.Getenv("SESSION_AUTHENTICATION_KEY")),
 		ek,
 	)
+	sessionStore.Options.HttpOnly = true
+	sessionStore.Options.SameSite = http.SameSiteLaxMode
+	sessionStore.Options.Secure = true
 
-	http.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("./public"))))
-	http.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+	r := mux.NewRouter()
+
+	r.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not Found", http.StatusNotFound)
 	})
-	http.HandleFunc("/login", login)
-	http.HandleFunc("/logout", logout)
-	http.HandleFunc("/", home)
 
-	log.Println(http.ListenAndServe(":"+port, nil))
+	r.HandleFunc("/login", loginForm).Methods("GET")
+	r.HandleFunc("/login", login).Methods("POST")
+	r.HandleFunc("/logout", logout)
+	r.HandleFunc("/", home)
+	log.Println(http.ListenAndServe(":"+port, csrf.Protect([]byte("32-byte-long-auth-key"), csrf.Secure(false))(r)))
 }

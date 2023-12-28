@@ -3,6 +3,7 @@
 <body>
   <p>Login with "foo" and "secret".</p>
   <form method="POST" action="/login">
+    {{.csrfField}}
     <input type="text" name="username" placeholder="Username"/>
     <input type="password" name="password" placeholder="Password"/>
     <button type="submit" name="_">Login</button>

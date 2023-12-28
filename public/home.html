@@ -1,0 +1,9 @@
+<html>
+  <body>
+    Hello {{.username}}<br />
+    <form action="/logout" method="post">
+      {{.csrfField}}
+      <button type="submit">Logout</button>
+    </form>
+  </body>
+</html>
